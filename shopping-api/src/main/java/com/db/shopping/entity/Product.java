@@ -2,6 +2,8 @@ package com.db.shopping.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.io.Serializable;
 import java.time.Instant;
 
 @Entity
