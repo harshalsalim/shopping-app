@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -48,8 +49,10 @@ class CartServiceTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(cartService, "shopLocation", "LONDON");
+
         product = Product.builder().id(1L).name("Test Product").price(BigDecimal.valueOf(100.00)).sku("SKU-100").currency("GBP").build();
-        inventory = Inventory.builder().id(1L).product(product).availableQuantity(10).reservedQuantity(0).build();
+        inventory = Inventory.builder().id(1L).product(product).availableQuantity(10).reservedQuantity(0).location("LONDON").build();
     }
 
     @Test
@@ -72,7 +75,7 @@ class CartServiceTest {
         AddCartItemRequest request = new AddCartItemRequest(1L, 2);
 
         when(productRepo.findById(1L)).thenReturn(Optional.of(product));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
         when(cartRepo.findByUserIdAndProductId(100L, 1L)).thenReturn(Optional.empty());
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
@@ -92,7 +95,7 @@ class CartServiceTest {
                 .id(10L).userId(100L).product(product).quantity(2).status("ACTIVE").build();
 
         when(productRepo.findById(1L)).thenReturn(Optional.of(product));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
         when(cartRepo.findByUserIdAndProductId(100L, 1L)).thenReturn(Optional.of(existingReservation));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
@@ -115,7 +118,7 @@ class CartServiceTest {
     void addItem_InventoryNotFound_ThrowsException() {
         AddCartItemRequest request = new AddCartItemRequest(1L, 1);
         when(productRepo.findById(1L)).thenReturn(Optional.of(product));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.empty());
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> cartService.addItem(100L, request));
     }
@@ -125,7 +128,7 @@ class CartServiceTest {
         AddCartItemRequest request = new AddCartItemRequest(1L, 20);
 
         when(productRepo.findById(1L)).thenReturn(Optional.of(product));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
 
         assertThrows(InsufficientStockException.class, () -> cartService.addItem(100L, request));
         verify(cartRepo, never()).save(any());
@@ -139,7 +142,7 @@ class CartServiceTest {
         inventory.setAvailableQuantity(8);
 
         when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         CartItemResponse response = cartService.updateItem(100L, 1L, 5);
@@ -158,7 +161,7 @@ class CartServiceTest {
         inventory.setAvailableQuantity(5);
 
         when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         CartItemResponse response = cartService.updateItem(100L, 1L, 2);
@@ -175,7 +178,7 @@ class CartServiceTest {
                 .id(1L).userId(100L).product(product).quantity(2).status("ACTIVE").build();
 
         when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
 
         assertThrows(InsufficientStockException.class, () -> cartService.updateItem(100L, 1L, 20));
     }
@@ -188,7 +191,7 @@ class CartServiceTest {
         inventory.setAvailableQuantity(8);
 
         when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
-        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(inventoryRepo.findByProductIdAndLocation(1L, "LONDON")).thenReturn(Optional.of(inventory));
 
         cartService.removeItem(100L, 1L, null);
 

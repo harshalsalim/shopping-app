@@ -6,7 +6,12 @@ import com.db.shopping.exception.*;
 import com.db.shopping.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.StaleObjectStateException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +29,9 @@ public class CartService {
     private final ProductRepository productRepo;
     private final StringRedisTemplate redisTemplate;
 
+    @Value("${app.shop.default-location}")
+    private String shopLocation;
+
     @Transactional(readOnly = true)
     public CartResponse getCart(Long userId) {
         List<CartReservation> reservations = cartRepo.findByUserIdAndStatus(userId, "ACTIVE");
@@ -36,13 +44,18 @@ public class CartService {
         return CartResponse.builder().items(items).cartTotal(total).build();
     }
 
+    @Retryable(
+            retryFor = { ObjectOptimisticLockingFailureException.class, StaleObjectStateException.class },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 50, multiplier = 2) // 50ms, then 100ms
+    )
     @Transactional
     public CartItemResponse addItem(Long userId, AddCartItemRequest request) {
         Product product = productRepo.findById(request.productId())
                 .orElseThrow(() -> new ResourceNotFoundException("Product", request.productId().toString()));
 
-        Inventory inventory = inventoryRepo.findByProductId(product.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Inventory", product.getId().toString()));
+        Inventory inventory = inventoryRepo.findByProductIdAndLocation(product.getId(), shopLocation)
+                .orElseThrow(() -> new ResourceNotFoundException("Inventory for location: " + shopLocation, product.getId().toString()));
 
         try {
             inventory.reserve(request.quantity());
@@ -76,26 +89,23 @@ public class CartService {
         CartReservation reservation = cartRepo.findByUserIdAndProductIdAndStatus(userId, productId, "ACTIVE")
                 .orElseThrow(() -> new ResourceNotFoundException("CartItem", productId.toString()));
 
-        Inventory inventory = inventoryRepo.findByProductId(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Inventory", productId.toString()));
+        Inventory inventory = inventoryRepo.findByProductIdAndLocation(productId, shopLocation)
+                .orElseThrow(() -> new ResourceNotFoundException("Inventory for location: " + shopLocation, productId.toString()));
 
         int currentQuantity = reservation.getQuantity();
         int quantityDifference = newQuantity - currentQuantity;
 
         if (quantityDifference > 0) {
-            // User increased quantity, attempt to reserve more
             try {
                 inventory.reserve(quantityDifference);
             } catch (IllegalStateException e) {
                 throw new InsufficientStockException(productId, quantityDifference, inventory.getAvailableQuantity());
             }
         } else if (quantityDifference < 0) {
-            // User decreased quantity, release the excess back to inventory
             inventory.release(Math.abs(quantityDifference));
         }
 
         reservation.setQuantity(newQuantity);
-        // Reset the 15-minute timer since the user modified their cart activity
         reservation.setReservedAt(LocalDateTime.now());
         reservation.setExpiresAt(LocalDateTime.now().plusMinutes(15));
 
@@ -116,8 +126,8 @@ public class CartService {
                     "Exceeded reserved quantity. Item quantity in cart: " + reservation.getQuantity());
         }
 
-        Inventory inventory = inventoryRepo.findByProductId(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Inventory", productId.toString()));
+        Inventory inventory = inventoryRepo.findByProductIdAndLocation(productId, shopLocation)
+                .orElseThrow(() -> new ResourceNotFoundException("Inventory for location: " + shopLocation, productId.toString()));
 
         if (quantityToRemove == null || quantityToRemove.equals(reservation.getQuantity())) {
             inventory.release(reservation.getQuantity());

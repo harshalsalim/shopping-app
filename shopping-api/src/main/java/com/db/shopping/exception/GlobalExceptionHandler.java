@@ -1,8 +1,11 @@
 package com.db.shopping.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -59,5 +62,19 @@ public class GlobalExceptionHandler {
         pd.setType(URI.create(BASE_URI + "missing-header"));
         pd.setProperty("header", ex.getHeaderName());
         return pd;
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ProblemDetail> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException ex, HttpServletRequest request) {
+
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                "The item you are trying to reserve is currently experiencing high demand. Please try again."
+        );
+        problemDetail.setTitle("Concurrent Modification Conflict");
+        problemDetail.setInstance(URI.create(request.getRequestURI()));
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problemDetail);
     }
 }
