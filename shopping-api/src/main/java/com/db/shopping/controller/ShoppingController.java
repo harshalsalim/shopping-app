@@ -30,6 +30,15 @@ public class ShoppingController {
                 .body(products);
     }
 
+    @GetMapping("/dashboards/new-arrivals")
+    public ResponseEntity<List<ProductResponse>> getNewArrivals(
+            @RequestParam(defaultValue = "20") int limit) {
+        List<ProductResponse> products = dashboardService.getNewArrivals(limit);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.SECONDS).cachePublic())
+                .body(products);
+    }
+
     @GetMapping("/dashboards/discounts")
     public ResponseEntity<DiscountsDashboardResponse> getDiscounts() {
         DiscountsDashboardResponse discounts = dashboardService.getActiveDiscounts();
@@ -59,6 +68,14 @@ public class ShoppingController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @PutMapping("/cart/items/{productId}")
+    public ResponseEntity<CartItemResponse> updateCartItem(
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long productId,
+            @Valid @RequestBody UpdateCartItemRequest request) {
+        CartItemResponse response = cartService.updateItem(userId, productId, request.quantity());
+        return ResponseEntity.ok(response);
+    }
 
     @DeleteMapping("/cart/items/{productId}")
     public ResponseEntity<Void> removeItem(

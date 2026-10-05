@@ -1,6 +1,8 @@
 package com.db.shopping.service;
 
-import com.db.shopping.dto.*;
+import com.db.shopping.dto.DiscountsDashboardResponse;
+import com.db.shopping.dto.LikedItemResponse;
+import com.db.shopping.dto.ProductResponse;
 import com.db.shopping.entity.Product;
 import com.db.shopping.repository.DiscountRepository;
 import com.db.shopping.repository.ProductRepository;
@@ -8,51 +10,63 @@ import com.db.shopping.repository.UserLikedItemRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
-    private final ProductRepository productRepository;
-    private final DiscountRepository discountRepository;
-    private final UserLikedItemRepository userLikedItemRepository;
+
+    private final ProductRepository productRepo;
+    private final DiscountRepository discountRepo;
+    private final UserLikedItemRepository likedItemRepo;
 
     @Cacheable(cacheNames = "popularProducts", key = "#limit")
+    @Transactional(readOnly = true)
     public List<ProductResponse> getPopularProducts(int limit) {
-        return productRepository.findByActiveTrueOrderByPopularityScoreDesc(PageRequest.of(0, limit))
-                .stream().map(this::mapToProductResponse).collect(Collectors.toList());
+        Pageable pageable = PageRequest.of(0, limit);
+        return productRepo.findByActiveTrueOrderByPopularityScoreDesc(pageable)
+                .stream().map(this::mapToProductResponse).toList();
     }
 
     @Cacheable(cacheNames = "newArrivals", key = "#limit")
+    @Transactional(readOnly = true)
     public List<ProductResponse> getNewArrivals(int limit) {
-        return productRepository.findByActiveTrueOrderByCreatedAtDesc(PageRequest.of(0, limit))
-                .stream().map(this::mapToProductResponse).collect(Collectors.toList());
+        Pageable pageable = PageRequest.of(0, limit);
+        return productRepo.findByActiveTrueOrderByCreatedAtDesc(pageable)
+                .stream().map(this::mapToProductResponse).toList();
     }
 
     @Cacheable(cacheNames = "activeDiscounts")
+    @Transactional(readOnly = true)
     public DiscountsDashboardResponse getActiveDiscounts() {
-        List<DiscountsDashboardResponse.DiscountDto> dtos = discountRepository.findActiveDiscounts(LocalDateTime.now())
-                .stream().map(d -> DiscountsDashboardResponse.DiscountDto.builder()
+        List<DiscountsDashboardResponse.DiscountDto> discounts = discountRepo.findActiveDiscounts(LocalDateTime.now())
+                .stream()
+                .map(d -> DiscountsDashboardResponse.DiscountDto.builder()
                         .title(d.getTitle()).code(d.getCode())
                         .type(d.getDiscountType()).value(d.getDiscountValue()).build())
-                .collect(Collectors.toList());
-        return DiscountsDashboardResponse.builder().activeDiscounts(dtos).build();
+                .toList();
+        return DiscountsDashboardResponse.builder().activeDiscounts(discounts).build();
     }
 
+    @Transactional(readOnly = true)
     public List<LikedItemResponse> getLikedItems(Long userId) {
-        return userLikedItemRepository.findByUserId(userId).stream()
+        return likedItemRepo.findByUserId(userId).stream()
                 .map(item -> LikedItemResponse.builder()
                         .product(mapToProductResponse(item.getProduct()))
                         .likedAt(item.getLikedAt()).build())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private ProductResponse mapToProductResponse(Product product) {
-        return ProductResponse.builder().id(product.getId()).sku(product.getSku())
-                .name(product.getName()).price(product.getPrice()).currency(product.getCurrency()).build();
+        return ProductResponse.builder()
+                .id(product.getId())
+                .name(product.getName())
+                .price(product.getPrice())
+                .build();
     }
 }

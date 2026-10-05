@@ -45,6 +45,18 @@ class ShoppingControllerIntegrationTest {
     }
 
     @Test
+    void getNewArrivals_ReturnsSuccess() throws Exception {
+        ProductResponse product = ProductResponse.builder().id(2L).name("Mechanical Keyboard").price(BigDecimal.valueOf(149.50)).build();
+        when(dashboardService.getNewArrivals(20)).thenReturn(List.of(product));
+
+        mockMvc.perform(get("/api/v1/dashboards/new-arrivals"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "max-age=30, public"))
+                .andExpect(jsonPath("$[0].id").value(2L))
+                .andExpect(jsonPath("$[0].name").value("Mechanical Keyboard"));
+    }
+
+    @Test
     void getDiscounts_ReturnsSuccess() throws Exception {
         DiscountsDashboardResponse.DiscountDto discount = DiscountsDashboardResponse.DiscountDto.builder()
                 .title("London Sale").code("LONDON20").type("PERCENTAGE").value(BigDecimal.valueOf(20)).build();
@@ -120,6 +132,35 @@ class ShoppingControllerIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Conflict"))
                 .andExpect(jsonPath("$.requested").value(50))
                 .andExpect(jsonPath("$.available").value(5));
+    }
+
+    @Test
+    void updateCartItem_Success() throws Exception {
+        UpdateCartItemRequest request = new UpdateCartItemRequest(3);
+        ProductResponse product = ProductResponse.builder().id(1L).name("Mouse").price(BigDecimal.TEN).build();
+        CartItemResponse response = CartItemResponse.builder().product(product).quantity(3).expiresAt(LocalDateTime.now().plusMinutes(15)).build();
+
+        when(cartService.updateItem(eq(123L), eq(1L), eq(3))).thenReturn(response);
+
+        mockMvc.perform(put("/api/v1/cart/items/1")
+                        .header("X-User-Id", "123")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quantity").value(3));
+    }
+
+    @Test
+    void updateCartItem_ValidationFailed_QuantityZero_ReturnsBadRequest() throws Exception {
+        UpdateCartItemRequest request = new UpdateCartItemRequest(0);
+
+        mockMvc.perform(put("/api/v1/cart/items/1")
+                        .header("X-User-Id", "123")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.errors.quantity").exists());
     }
 
     @Test

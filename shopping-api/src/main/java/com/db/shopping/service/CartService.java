@@ -29,7 +29,6 @@ public class CartService {
         List<CartReservation> reservations = cartRepo.findByUserIdAndStatus(userId, "ACTIVE");
         List<CartItemResponse> items = reservations.stream().map(this::mapToCartItemResponse).toList();
 
-        // Updated to use record accessors: i.product().price() and i.quantity()
         BigDecimal total = items.stream()
                 .map(i -> i.product().price().multiply(BigDecimal.valueOf(i.quantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -39,7 +38,6 @@ public class CartService {
 
     @Transactional
     public CartItemResponse addItem(Long userId, AddCartItemRequest request) {
-        // Updated to use request.productId()
         Product product = productRepo.findById(request.productId())
                 .orElseThrow(() -> new ResourceNotFoundException("Product", request.productId().toString()));
 
@@ -47,7 +45,6 @@ public class CartService {
                 .orElseThrow(() -> new ResourceNotFoundException("Inventory", product.getId().toString()));
 
         try {
-            // Updated to use request.quantity()
             inventory.reserve(request.quantity());
         } catch (IllegalStateException e) {
             throw new InsufficientStockException(product.getId(), request.quantity(), inventory.getAvailableQuantity());
@@ -75,11 +72,45 @@ public class CartService {
     }
 
     @Transactional
+    public CartItemResponse updateItem(Long userId, Long productId, Integer newQuantity) {
+        CartReservation reservation = cartRepo.findByUserIdAndProductIdAndStatus(userId, productId, "ACTIVE")
+                .orElseThrow(() -> new ResourceNotFoundException("CartItem", productId.toString()));
+
+        Inventory inventory = inventoryRepo.findByProductId(productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Inventory", productId.toString()));
+
+        int currentQuantity = reservation.getQuantity();
+        int quantityDifference = newQuantity - currentQuantity;
+
+        if (quantityDifference > 0) {
+            // User increased quantity, attempt to reserve more
+            try {
+                inventory.reserve(quantityDifference);
+            } catch (IllegalStateException e) {
+                throw new InsufficientStockException(productId, quantityDifference, inventory.getAvailableQuantity());
+            }
+        } else if (quantityDifference < 0) {
+            // User decreased quantity, release the excess back to inventory
+            inventory.release(Math.abs(quantityDifference));
+        }
+
+        reservation.setQuantity(newQuantity);
+        // Reset the 15-minute timer since the user modified their cart activity
+        reservation.setReservedAt(LocalDateTime.now());
+        reservation.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+
+        inventoryRepo.save(inventory);
+        cartRepo.save(reservation);
+        redisTemplate.opsForValue().set("cart:reservation:" + userId + ":" + productId, "ACTIVE", 15, TimeUnit.MINUTES);
+
+        return mapToCartItemResponse(reservation);
+    }
+
+    @Transactional
     public void removeItem(Long userId, Long productId, Integer quantityToRemove) {
         CartReservation reservation = cartRepo.findByUserIdAndProductIdAndStatus(userId, productId, "ACTIVE")
                 .orElseThrow(() -> new ResourceNotFoundException("CartItem", productId.toString()));
 
-        // If requested removal quantity exceeds current reserved quantity, throw exception
         if (quantityToRemove != null && quantityToRemove > reservation.getQuantity()) {
             throw new ResourceNotFoundException("CartItem",
                     "Exceeded reserved quantity. Item quantity in cart: " + reservation.getQuantity());
@@ -88,13 +119,11 @@ public class CartService {
         Inventory inventory = inventoryRepo.findByProductId(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Inventory", productId.toString()));
 
-        // If quantity is not specified or matches exact reserved quantity, release all and deactivate
         if (quantityToRemove == null || quantityToRemove.equals(reservation.getQuantity())) {
             inventory.release(reservation.getQuantity());
             reservation.setStatus("RELEASED");
             redisTemplate.delete("cart:reservation:" + userId + ":" + productId);
         } else {
-            // Partial release: decrement quantity in cart and return reserved stock back to available inventory
             inventory.release(quantityToRemove);
             reservation.setQuantity(reservation.getQuantity() - quantityToRemove);
         }

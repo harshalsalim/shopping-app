@@ -132,6 +132,55 @@ class CartServiceTest {
     }
 
     @Test
+    void updateItem_Success_IncreaseQuantity() {
+        CartReservation reservation = CartReservation.builder()
+                .id(1L).userId(100L).product(product).quantity(2).status("ACTIVE").build();
+        inventory.setReservedQuantity(2);
+        inventory.setAvailableQuantity(8);
+
+        when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
+        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        CartItemResponse response = cartService.updateItem(100L, 1L, 5);
+
+        assertEquals(5, reservation.getQuantity());
+        assertEquals(5, inventory.getReservedQuantity());
+        assertEquals(5, inventory.getAvailableQuantity());
+        assertEquals(5, response.quantity());
+    }
+
+    @Test
+    void updateItem_Success_DecreaseQuantity() {
+        CartReservation reservation = CartReservation.builder()
+                .id(1L).userId(100L).product(product).quantity(5).status("ACTIVE").build();
+        inventory.setReservedQuantity(5);
+        inventory.setAvailableQuantity(5);
+
+        when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
+        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        CartItemResponse response = cartService.updateItem(100L, 1L, 2);
+
+        assertEquals(2, reservation.getQuantity());
+        assertEquals(2, inventory.getReservedQuantity());
+        assertEquals(8, inventory.getAvailableQuantity());
+        assertEquals(2, response.quantity());
+    }
+
+    @Test
+    void updateItem_InsufficientStock_ThrowsException() {
+        CartReservation reservation = CartReservation.builder()
+                .id(1L).userId(100L).product(product).quantity(2).status("ACTIVE").build();
+
+        when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
+        when(inventoryRepo.findByProductId(1L)).thenReturn(Optional.of(inventory));
+
+        assertThrows(InsufficientStockException.class, () -> cartService.updateItem(100L, 1L, 20));
+    }
+
+    @Test
     void removeItem_Success() {
         CartReservation reservation = CartReservation.builder()
                 .id(1L).userId(100L).product(product).quantity(2).status("ACTIVE").build();
@@ -147,6 +196,16 @@ class CartServiceTest {
         assertEquals(0, inventory.getReservedQuantity());
         assertEquals(10, inventory.getAvailableQuantity());
         verify(redisTemplate, times(1)).delete("cart:reservation:100:1");
+    }
+
+    @Test
+    void removeItem_ExceededQuantity_ThrowsException() {
+        CartReservation reservation = CartReservation.builder()
+                .id(1L).userId(100L).product(product).quantity(2).status("ACTIVE").build();
+
+        when(cartRepo.findByUserIdAndProductIdAndStatus(100L, 1L, "ACTIVE")).thenReturn(Optional.of(reservation));
+
+        assertThrows(ResourceNotFoundException.class, () -> cartService.removeItem(100L, 1L, 5));
     }
 
     @Test

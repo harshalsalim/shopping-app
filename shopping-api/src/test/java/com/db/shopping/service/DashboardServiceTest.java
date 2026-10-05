@@ -53,6 +53,17 @@ class DashboardServiceTest {
     }
 
     @Test
+    void getNewArrivals_ReturnsMappedDTOs() {
+        when(productRepository.findByActiveTrueOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(List.of(product));
+
+        List<ProductResponse> result = dashboardService.getNewArrivals(10);
+
+        assertEquals(1, result.size());
+        assertEquals("Keyboard", result.get(0).name());
+        assertEquals(BigDecimal.valueOf(149.50), result.get(0).price());
+    }
+
+    @Test
     void getActiveDiscounts_ReturnsActiveDiscounts() {
         Discount discount = Discount.builder().title("London 20%").code("LONDON20").discountType("PERCENTAGE").discountValue(BigDecimal.valueOf(20)).active(true).build();
         when(discountRepository.findActiveDiscounts(any(LocalDateTime.class))).thenReturn(List.of(discount));
